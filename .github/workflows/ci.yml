@@ -20,12 +20,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: licenselint
+        uses: hezhangjian/licenselint@main
         with:
-          fetch-depth: 100
-      - name: Run commitlint
-        uses: wagoid/commitlint-github-action@v5
-      - name: Run license check
-        run: make license-check
+          author: openGemini Authors
   LineLint:
     name: line lint
     runs-on: ubuntu-latest

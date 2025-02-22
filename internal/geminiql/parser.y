@@ -43,7 +43,7 @@ func updateStmt(QLlex interface{}, stmt Statement) {
 // any non-terminal which returns a value needs a type, which is
 // really a field name in the above union struct
 %type <stmts> STATEMENTS
-%type <stmt> INSERT_STATEMENT USE_STATEMENT SET_STATEMENT CHUNKED_STATEMENT CHUNK_SIZE_STATEMENT AUTH_STATEMENT HELP_STATEMENT PRECISION_STATEMENT TIMER_STATEMENT
+%type <stmt> INSERT_STATEMENT USE_STATEMENT SET_STATEMENT CHUNKED_STATEMENT CHUNK_SIZE_STATEMENT AUTH_STATEMENT HELP_STATEMENT PRECISION_STATEMENT TIMER_STATEMENT DEBUG_STATEMENT PROMPT_STATEMENT
 %type <str> LINE_PROTOCOL TIME_SERIE MEASUREMENT KV_RAW KV_RAWS TIME
 %type <integer> NUM_CHUNK_SIZE
 %type <strslice> NAMESPACE
@@ -51,7 +51,7 @@ func updateStmt(QLlex interface{}, stmt Statement) {
 %type <pairs> KEY_VALUES
 
 // same for terminals
-%token <str> INSERT INTO USE SET CHUNKED CHUNK_SIZE AUTH HELP PRECISION TIMER
+%token <str> INSERT INTO USE SET CHUNKED CHUNK_SIZE AUTH HELP PRECISION TIMER DEBUG PROMPT
 %token <str> DOT COMMA
 %token <str> EQ
 %token <str> IDENT
@@ -96,6 +96,14 @@ STATEMENTS:
         updateStmt(QLlex, $1)
     }
     |TIMER_STATEMENT
+    {
+        updateStmt(QLlex, $1)
+    }
+    |DEBUG_STATEMENT
+    {
+        updateStmt(QLlex, $1)
+    }
+    |PROMPT_STATEMENT
     {
         updateStmt(QLlex, $1)
     }
@@ -192,6 +200,20 @@ TIMER_STATEMENT:
     TIMER
     {
         stmt := &TimerStatement{}
+        $$ = stmt
+    }
+
+DEBUG_STATEMENT:
+    DEBUG
+    {
+        stmt := &DebugStatement{}
+        $$ = stmt
+    }
+
+PROMPT_STATEMENT:
+    PROMPT
+    {
+        stmt := &PromptStatement{}
         $$ = stmt
     }
 

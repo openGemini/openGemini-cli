@@ -52,5 +52,3 @@ openGemini follows the [CNCF Code of Conduct](https://github.com/cncf/foundation
 openGemini is licensed under the Apache License 2.0. Refer to [LICENSE](https://github.com/openGemini/openGemini/blob/main/LICENSE) for more details.
 
 For third-party software usage notice, see [Open_Source_Software_Notice](Open_Source_Software_Notice.md)
-
-

@@ -1,0 +1,193 @@
+// Copyright 2025 openGemini Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package core
+
+import (
+	"bufio"
+	"errors"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/openGemini/opengemini-client-go/opengemini"
+)
+
+// LineProtocolState define line protocol parser fsm state
+type LineProtocolState int
+
+const (
+	Measurement LineProtocolState = iota
+	TagKey
+	TagValue
+	FieldKey
+	FieldValue
+	Timestamp
+)
+
+type LineProtocolParser struct {
+	raw          io.Reader
+	points       []*opengemini.Point
+	currentPoint *opengemini.Point
+	currentState LineProtocolState
+	currentKey   string
+	currentValue string
+	currentTime  string
+	escape       bool
+	quota        bool
+}
+
+func NewLineProtocolParser(raw string) *LineProtocolParser {
+	return &LineProtocolParser{raw: strings.NewReader(raw)}
+}
+
+func (p *LineProtocolParser) Parse() ([]*opengemini.Point, error) {
+	scanner := bufio.NewScanner(p.raw)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		lp, err := p.parse(line)
+		if err != nil {
+			return nil, err
+		}
+		p.points = append(p.points, lp)
+	}
+	return p.points, nil
+}
+
+func (p *LineProtocolParser) parse(line string) (*opengemini.Point, error) {
+	p.currentState = Measurement
+	p.currentPoint = &opengemini.Point{Tags: make(map[string]string), Fields: make(map[string]interface{})}
+
+	for _, token := range line {
+		switch token {
+		case '\\':
+			p.escape = true
+		case '=':
+			if p.escape {
+				p.appendToken(token)
+				p.escape = false
+				continue
+			}
+			if p.currentState == TagKey {
+				p.currentState = TagValue
+				continue
+			}
+			if p.currentState == FieldKey {
+				p.currentState = FieldValue
+				continue
+			}
+		case '"':
+			if p.escape {
+				p.appendToken(token)
+				p.escape = false
+				continue
+			}
+			if p.quota {
+				p.quota = false
+				continue
+			}
+			p.quota = true
+		case ',':
+			if p.escape {
+				p.appendToken(token)
+				p.escape = false
+				continue
+			}
+			if p.currentState == Measurement {
+				p.currentState = TagKey
+				continue
+			}
+			if p.currentState == TagValue {
+				p.currentState = TagKey
+				p.appendTagOrField()
+				continue
+			}
+			if p.currentState == FieldValue {
+				p.currentState = FieldKey
+				p.appendTagOrField()
+				continue
+			}
+		case ' ':
+			if p.escape || p.quota {
+				p.appendToken(token)
+				p.escape = false
+				continue
+			}
+			if p.currentKey != "" {
+				p.appendTagOrField()
+			}
+			if p.currentState == Timestamp {
+				break
+			}
+			if p.currentState == Measurement || p.currentState == TagKey || p.currentState == TagValue {
+				p.currentState = FieldKey
+			} else if p.currentState == FieldKey || p.currentState == FieldValue {
+				p.currentState = Timestamp
+			}
+		default:
+			p.appendToken(token)
+		}
+	}
+
+	if p.currentKey != "" {
+		p.appendTagOrField()
+	}
+
+	if p.currentTime == "" {
+		p.currentPoint.Timestamp = time.Now().UnixNano()
+	} else {
+		num, err := strconv.Atoi(p.currentTime)
+		if err != nil {
+			return nil, err
+		}
+		p.currentPoint.Timestamp = int64(num)
+	}
+	p.currentTime = ""
+	if len(p.currentPoint.Fields) == 0 {
+		return nil, errors.New("no fields input")
+	}
+
+	return p.currentPoint, nil
+}
+
+func (p *LineProtocolParser) appendToken(token rune) {
+	word := string(token)
+	switch p.currentState {
+	case Measurement:
+		p.currentPoint.Measurement += word
+	case TagKey, FieldKey:
+		p.currentKey += word
+	case TagValue, FieldValue:
+		p.currentValue += word
+	default:
+
+	}
+}
+
+func (p *LineProtocolParser) appendTagOrField() {
+	switch p.currentState {
+	case TagKey, TagValue:
+		p.currentPoint.Tags[p.currentKey] = p.currentValue
+	case FieldKey, FieldValue:
+		p.currentPoint.Fields[p.currentKey] = p.currentValue
+	default:
+
+	}
+	p.currentKey = ""
+	p.currentValue = ""
+}
