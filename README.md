@@ -17,7 +17,7 @@ OpenGemini is a cloud-native distributed time series database, find more informa
 **IMPORTANT**: It's highly recommended installing a specific version of `ts-cli` available on the [releases page](https://github.com/opengemini/openGemini-cli/releases).
 
 ```bash
-go install github.com/opengemini/openGemini-cli/cmd/ts-cli@latest
+go install github.com/openGemini/openGemini-cli/cmd/ts-cli@latest
 ```
 
 ## Usage
