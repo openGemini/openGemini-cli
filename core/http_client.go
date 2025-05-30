@@ -260,3 +260,47 @@ func NewCertificateManager(ca, certificate, certificateKey string) (*Certificate
 
 	return cm, nil
 }
+
+func (cm *CertificateManager) CreateTls(insecureTls, insecureHostname bool) *tls.Config {
+	var cfg = &tls.Config{
+		RootCAs:      cm.CAPool,
+		Certificates: []tls.Certificate{cm.Certificate},
+	}
+	if insecureTls {
+		cfg.InsecureSkipVerify = true
+	}
+
+	if insecureHostname {
+		cfg.InsecureSkipVerify = true
+		cfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return errors.New("no certificates provided by server")
+			}
+			cert, err := x509.ParseCertificate(rawCerts[0])
+			if err != nil {
+				return fmt.Errorf("failed to parse server certificate: %w", err)
+			}
+			now := time.Now()
+			if now.After(cert.NotAfter) {
+				return errors.New("server certificate has expired")
+			}
+			opts := x509.VerifyOptions{
+				DNSName:       "",
+				Roots:         cm.CAPool,
+				Intermediates: x509.NewCertPool(),
+			}
+			for _, rawCert := range rawCerts[1:] {
+				intermediateCert, err := x509.ParseCertificate(rawCert)
+				if err != nil {
+					return fmt.Errorf("failed to parse intermediate certificate: %w", err)
+				}
+				opts.Intermediates.AddCert(intermediateCert)
+			}
+			if _, err := cert.Verify(opts); err != nil {
+				return fmt.Errorf("server certificate chain validation failed: %w", err)
+			}
+			return nil
+		}
+	}
+	return cfg
+}

@@ -34,7 +34,6 @@ func (m *Command) rootCommand() {
 		Short: "openGemini client interactive CLI.",
 		Long:  `CNCF openGemini client interactive command-line interface.`,
 		CompletionOptions: cobra.CompletionOptions{
-			DisableDefaultCmd:   true,
 			DisableNoDescFlag:   true,
 			DisableDescriptions: true,
 		},
@@ -64,6 +63,10 @@ func (m *Command) versionCommand() {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "version for openGemini CLI",
+		CompletionOptions: cobra.CompletionOptions{
+			DisableNoDescFlag:   true,
+			DisableDescriptions: true,
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println(common.FullVersion())
 		},
@@ -71,9 +74,48 @@ func (m *Command) versionCommand() {
 	m.cmd.AddCommand(cmd)
 }
 
+func (m *Command) importCommand() {
+	var config = ImportConfig{CommandLineConfig: new(core.CommandLineConfig)}
+	cmd := &cobra.Command{
+		Use:     "import",
+		Short:   "import data to openGemini",
+		Long:    "import line protocol text file to openGemini",
+		Example: "ts-cli import --host localhost --port 8086 --path line_protocol_file.txt --precision=s",
+		CompletionOptions: cobra.CompletionOptions{
+			DisableNoDescFlag:   true,
+			DisableDescriptions: true,
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			importCmd := new(ImportCommand)
+			return importCmd.Run(&config)
+		},
+	}
+	cmd.Flags().StringVarP(&config.Host, "host", "H", common.DefaultHost, "ts-sql host to connect to.")
+	cmd.Flags().IntVarP(&config.Port, "port", "p", common.DefaultHttpPort, "ts-sql tcp port to connect to.")
+	cmd.Flags().IntVarP(&config.Timeout, "timeout", "t", common.DefaultRequestTimeout, "request-timeout in mill-seconds.")
+	cmd.Flags().StringVarP(&config.Username, "username", "u", "", "username to connect to openGemini.")
+	cmd.Flags().StringVarP(&config.Password, "password", "P", "", "password to connect to openGemini.")
+	cmd.Flags().BoolVarP(&config.EnableTls, "ssl", "s", false, "use https for connecting to openGemini.")
+	cmd.Flags().BoolVarP(&config.InsecureTls, "insecure-tls", "i", false, "ignore ssl verification when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.CACert, "cacert", "c", "", "CA certificate to verify peer against when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.Cert, "cert", "C", "", "client certificate file when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.CertKey, "cert-key", "k", "", "client certificate password.")
+	cmd.Flags().BoolVarP(&config.InsecureHostname, "insecure-hostname", "I", false, "ignore server certificate hostname verification when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.Precision, "precision", "U", "ns", "precision for time unit conversion.")
+	cmd.Flags().BoolVarP(&config.ColumnWrite, "column-write", "w", false, "use high performance column writing protocol, default use line protocol")
+	cmd.Flags().IntVarP(&config.ColumnWritePort, "column-write-port", "W", 8305, "high performance column writing protocol service port")
+	cmd.Flags().IntVarP(&config.BatchSize, "batch-size", "b", 100, "enable batch submission to improve write performance")
+	cmd.Flags().StringVarP(&config.Path, "path", "T", "", "import file path to store openGemini")
+
+	cmd.MarkFlagsRequiredTogether("username", "password")
+	cmd.MarkFlagsRequiredTogether("cert", "cert-key")
+	m.cmd.AddCommand(cmd)
+}
+
 func (m *Command) load() {
 	m.rootCommand()
 	m.versionCommand()
+	m.importCommand()
 }
 
 func (m *Command) Execute() error {

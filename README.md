@@ -57,7 +57,7 @@ Use "ts-cli [command] --help" for more information about a command.
 
 ## Develop Requirements
 
-- Go 1.22+
+- Go 1.24+
 
 ## Code of Conduct
 

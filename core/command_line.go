@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"runtime/debug"
 	"sort"
@@ -48,7 +48,8 @@ type CommandLine struct {
 func NewCommandLine(cfg *CommandLineConfig) *CommandLine {
 	httpClient, err := NewHttpClient(cfg)
 	if err != nil {
-		log.Fatal("create http client error: ", err)
+		slog.Error("create http client failed", "reason", err)
+		os.Exit(1)
 	}
 	var cl = &CommandLine{
 		CommandLineConfig: cfg,
@@ -137,7 +138,7 @@ func (cl *CommandLine) executeOnRemote(s string) error {
 	defer cancel()
 	response, err := cl.httpClient.Query(ctx, &opengemini.Query{
 		Database:        cl.Database,
-		Precision:       opengemini.ToPrecision(cl.precision),
+		Precision:       opengemini.ToPrecision(cl.Precision),
 		RetentionPolicy: cl.RetentionPolicy,
 		Command:         s,
 	})
@@ -250,11 +251,11 @@ func (cl *CommandLine) executePrecision(stmt *geminiql.PrecisionStatement) error
 	precision := strings.ToLower(stmt.Precision)
 	switch precision {
 	case "":
-		cl.precision = "ns"
+		cl.Precision = "ns"
 	case "h", "m", "s", "ms", "u", "ns", "rfc3339":
-		cl.precision = precision
+		cl.Precision = precision
 	default:
-		return fmt.Errorf("unknown precision %q. precision must be rfc3339, h, m, s, ms, u or ns", precision)
+		return fmt.Errorf("unknown Precision %q. Precision must be rfc3339, h, m, s, ms, u or ns", precision)
 	}
 	return nil
 }
@@ -268,7 +269,7 @@ func (cl *CommandLine) executeHelp(stmt *geminiql.HelpStatement) error {
   prompt                  enable command line reminder and suggestion
   auth                    prompt for username and password
   use <db>[.rp]           set current database and optional retention policy
-  precision <format>      specifies the format of the timestamp: rfc3339, h, m, s, ms, u or ns
+  Precision <format>      specifies the format of the timestamp: rfc3339, h, m, s, ms, u or ns
   show cluster            show cluster node status information
   show users              show all existing users and their permission status
   show databases          show a list of all databases on the cluster
@@ -330,5 +331,5 @@ func (cl *CommandLine) executePrompt(stmt *geminiql.PromptStatement) error {
 }
 
 func (cl *CommandLine) executeInsert(stmt *geminiql.InsertStatement) error {
-	return cl.httpClient.Write(context.Background(), cl.Database, cl.RetentionPolicy, stmt.LineProtocol, cl.precision)
+	return cl.httpClient.Write(context.Background(), cl.Database, cl.RetentionPolicy, stmt.LineProtocol, cl.Precision)
 }

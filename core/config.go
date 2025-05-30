@@ -29,6 +29,5 @@ type CommandLineConfig struct {
 	Cert             string
 	CertKey          string
 	InsecureHostname bool
-
-	precision string
+	Precision        string
 }

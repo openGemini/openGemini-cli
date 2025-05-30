@@ -50,6 +50,11 @@ type LineProtocolParser struct {
 	bracket      bool
 }
 
+func ConvertLineProtocol(raw string) (*opengemini.Point, error) {
+	p := &LineProtocolParser{}
+	return p.parse(raw)
+}
+
 func NewLineProtocolParser(raw string) *LineProtocolParser {
 	return &LineProtocolParser{raw: strings.NewReader(raw)}
 }
