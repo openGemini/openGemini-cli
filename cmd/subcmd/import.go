@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package subcmd
 
 import (
 	"bufio"
@@ -43,7 +43,7 @@ import (
 const (
 	importFormatLineProtocol = "line_protocol"
 	importFormatCSV          = "csv"
-	importFormatTXT          = "txt"
+	importFormatJSON         = "json"
 
 	importTokenDDL             = "# DDL"
 	importTokenDML             = "# DML"
@@ -136,7 +136,7 @@ func (c *ImportCommand) Run(config *ImportConfig) error {
 		return err
 	}
 
-	if err = config.configTimeMultiplierV1(); err != nil {
+	if err = config.configTimeMultiplier(); err != nil {
 		slog.Error("create column writer client failed", "reason", err)
 		return err
 	}
@@ -162,7 +162,7 @@ func (c *ImportCommand) process() error {
 			if err != nil {
 				if err == io.EOF {
 					if len(line) > 0 {
-						fsmCall, err := c.fsm.processLineProtocol(ctx, string(line))
+						fsmCall, err := c.fsm.processLineProtocol(string(line))
 						if err != nil {
 							slog.Error("process line protocol failed", "reason", err)
 							break
@@ -177,7 +177,7 @@ func (c *ImportCommand) process() error {
 				slog.Error("read line failed", "reason", err)
 				continue
 			}
-			fsmCall, err := c.fsm.processLineProtocol(ctx, string(line))
+			fsmCall, err := c.fsm.processLineProtocol(string(line))
 			if err != nil {
 				slog.Error("process line protocol failed", "reason", err)
 				continue
@@ -206,7 +206,7 @@ func (c *ImportCommand) process() error {
 				slog.Error("read csv line failed", "reason", err)
 				continue
 			}
-			fsmCall, err := c.fsm.processCSV(ctx, row)
+			fsmCall, err := c.fsm.processCSV(row)
 			if err != nil {
 				slog.Error("process csv line failed", "reason", err)
 				continue
@@ -223,10 +223,10 @@ func (c *ImportCommand) process() error {
 		slog.Info("process finished", "path", c.cfg.Path)
 		return nil
 	// todo
-	case importFormatTXT:
+	case importFormatJSON:
 		return nil
 	default:
-		return fmt.Errorf("unknown --format %s, only support line_protocol,csv", c.cfg.Format)
+		return fmt.Errorf("unknown --format %s, only support line_protocol, csv", c.cfg.Format)
 	}
 }
 
@@ -260,135 +260,18 @@ var FSMCallEmpty = func(ctx context.Context, command *ImportCommand) error { ret
 
 // clear the last batch data
 func (fsm *ImportFileFSM) clearBuffer() FSMCall {
-	var err error
 	return func(ctx context.Context, command *ImportCommand) error {
 		if len(fsm.batchLPBuffer) != 0 {
-			defer func() {
-				command.fsm.batchLPBuffer = command.fsm.batchLPBuffer[:0]
-			}()
-			var lines = strings.Join(command.fsm.batchLPBuffer, "\n")
-			if command.cfg.ColumnWrite {
-				var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
-				builder, ok := builderEntities[builderName]
-				if !ok {
-					builder, err = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
-					if err != nil {
-						return err
-					}
-					builderEntities[builderName] = builder
-				}
-				parser := core.NewLineProtocolParser(lines)
-				points, err := parser.Parse(command.cfg.TimeMultiplier)
-				if err != nil {
-					return err
-				}
-				var recordBuilder = make(map[string]opengemini.RecordBuilder)
-				var recordLines []opengemini.RecordLine
-				for _, point := range points {
-					rb, ok := recordBuilder[point.Measurement]
-					if !ok {
-						rb, err = opengemini.NewRecordBuilder(point.Measurement)
-						if err != nil {
-							return err
-						}
-						recordBuilder[point.Measurement] = rb
-					}
-					newLine := rb.NewLine()
-					for key, value := range point.Tags {
-						newLine.AddTag(key, value)
-					}
-					for key, value := range point.Fields {
-						newLine.AddField(key, value)
-					}
-					recordLines = append(recordLines, newLine.Build(point.Timestamp))
-				}
-				request, err := builder.Authenticate(command.cfg.Username, command.cfg.Password).AddRecord(recordLines...).Build()
-				if err != nil {
-					return err
-				}
-				response, err := command.writeClient.Write(ctx, request)
-				if err != nil {
-					return err
-				}
-				switch response.Code {
-				case 0:
-					return nil
-				case 1:
-					return fmt.Errorf("write failed, code: %d, partial write failure", response.GetCode())
-				case 2:
-					return fmt.Errorf("write failed, code: %d, write failure", response.GetCode())
-				default:
-					return fmt.Errorf("unexpected response code: %d", response.Code)
-				}
-			} else {
-				err = command.httpClient.Write(ctx, fsm.database, fsm.retentionPolicy, lines, command.cfg.Precision)
-			}
-			return err
+			return command.excuteByLPBuffer(ctx)
 		}
 		if len(fsm.batchPointBuffer) != 0 { // only support column write
-			defer func() {
-				command.fsm.batchPointBuffer = command.fsm.batchPointBuffer[:0]
-			}()
-			var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
-			builder, ok := builderEntities[builderName]
-			if !ok {
-				var buildRequestErr error
-				builder, buildRequestErr = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
-				if buildRequestErr != nil {
-					err = errors.Join(err, buildRequestErr)
-					return err
-				}
-				builderEntities[builderName] = builder
-			}
-			var recordBuilder = make(map[string]opengemini.RecordBuilder)
-			var recordLines []opengemini.RecordLine
-			for _, point := range fsm.batchPointBuffer {
-				rb, ok := recordBuilder[point.Measurement]
-				if !ok {
-					var recordBuilderErr error
-					rb, recordBuilderErr = opengemini.NewRecordBuilder(point.Measurement)
-					if recordBuilderErr != nil {
-						err = errors.Join(err, recordBuilderErr)
-						return err
-					}
-					recordBuilder[point.Measurement] = rb
-				}
-				newLine := rb.NewLine()
-				for key, value := range point.Tags {
-					newLine.AddTag(key, value)
-				}
-				for key, value := range point.Fields {
-					newLine.AddField(key, value)
-				}
-				recordLines = append(recordLines, newLine.Build(point.Timestamp))
-			}
-			var buildErr error
-			request, buildErr := builder.Authenticate(command.cfg.Username, command.cfg.Password).AddRecord(recordLines...).Build()
-			if buildErr != nil {
-				err = errors.Join(err, buildErr)
-				return err
-			}
-			response, writeErr := command.writeClient.Write(ctx, request)
-			if writeErr != nil {
-				err = errors.Join(err, writeErr)
-				return err
-			}
-			switch response.Code {
-			case 0:
-				return err
-			case 1:
-				return fmt.Errorf("%w\nwrite failed, code: %d, partial write failure", err, response.GetCode())
-			case 2:
-				return fmt.Errorf("%w\nwrite failed, code: %d, write failure", err, response.GetCode())
-			default:
-				return fmt.Errorf("%w\nunexpected response code: %d", err, response.Code)
-			}
+			return command.executeByPointBuffer(ctx)
 		}
-		return err
+		return nil
 	}
 }
 
-func (fsm *ImportFileFSM) processLineProtocol(ctx context.Context, data string) (FSMCall, error) {
+func (fsm *ImportFileFSM) processLineProtocol(data string) (FSMCall, error) {
 	if strings.HasPrefix(data, importTokenDDL) {
 		fsm.state = importStateDDL
 		return FSMCallEmpty, nil
@@ -441,76 +324,13 @@ func (fsm *ImportFileFSM) processLineProtocol(ctx context.Context, data string) 
 			if len(command.fsm.batchLPBuffer) < command.cfg.BatchSize {
 				return nil
 			}
-			defer func() {
-				// clear batch buffer
-				command.fsm.batchLPBuffer = command.fsm.batchLPBuffer[:0]
-			}()
-
-			var err error
-			var lines = strings.Join(command.fsm.batchLPBuffer, "\n") // a batch of data is stored in lines
-			if command.cfg.ColumnWrite {
-				var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
-				builder, ok := builderEntities[builderName]
-				if !ok {
-					builder, err = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
-					if err != nil {
-						return err
-					}
-					builderEntities[builderName] = builder
-				}
-				parser := core.NewLineProtocolParser(lines)
-				points, err := parser.Parse(command.cfg.TimeMultiplier)
-				if err != nil {
-					return err
-				}
-				var recordBuilder = make(map[string]opengemini.RecordBuilder)
-				var recordLines []opengemini.RecordLine
-				for _, point := range points {
-					rb, ok := recordBuilder[point.Measurement]
-					if !ok {
-						rb, err = opengemini.NewRecordBuilder(point.Measurement)
-						if err != nil {
-							return err
-						}
-						recordBuilder[point.Measurement] = rb
-					}
-					newLine := rb.NewLine()
-					for key, value := range point.Tags {
-						newLine.AddTag(key, value)
-					}
-					for key, value := range point.Fields {
-						newLine.AddField(key, value)
-					}
-					recordLines = append(recordLines, newLine.Build(point.Timestamp))
-				}
-				request, err := builder.Authenticate(command.cfg.Username, command.cfg.Password).AddRecord(recordLines...).Build()
-				if err != nil {
-					return err
-				}
-				response, err := command.writeClient.Write(ctx, request)
-				if err != nil {
-					return err
-				}
-				switch response.Code {
-				case 0:
-					return nil
-				case 1:
-					return fmt.Errorf("write failed, code: %d, partial write failure", response.GetCode())
-				case 2:
-					return fmt.Errorf("write failed, code: %d, write failure", response.GetCode())
-				default:
-					return fmt.Errorf("unexpected response code: %d", response.Code)
-				}
-			} else {
-				err = command.httpClient.Write(ctx, fsm.database, fsm.retentionPolicy, lines, command.cfg.Precision)
-			}
-			return err
+			return command.excuteByLPBuffer(ctx)
 		}, nil
 	}
 	return FSMCallEmpty, nil
 }
 
-func (fsm *ImportFileFSM) processCSV(ctx context.Context, data []string) (FSMCall, error) {
+func (fsm *ImportFileFSM) processCSV(data []string) (FSMCall, error) {
 	if len(data) == 0 {
 		return FSMCallEmpty, nil
 	}
@@ -626,62 +446,136 @@ func (fsm *ImportFileFSM) processCSV(ctx context.Context, data []string) (FSMCal
 				return nil
 			}
 			// consumption data, if data is full
-			defer func() {
-				command.fsm.batchPointBuffer = command.fsm.batchPointBuffer[:0]
-			}()
-
-			var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
-			builder, ok := builderEntities[builderName]
-
-			var err error
-			if !ok {
-				builder, err = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
-				if err != nil {
-					return err
-				}
-				builderEntities[builderName] = builder
-			}
-			var recordBuilder = make(map[string]opengemini.RecordBuilder)
-			var recordLines []opengemini.RecordLine
-			for _, point := range fsm.batchPointBuffer {
-				rb, ok := recordBuilder[point.Measurement]
-				if !ok {
-					rb, err = opengemini.NewRecordBuilder(point.Measurement)
-					if err != nil {
-						return err
-					}
-					recordBuilder[point.Measurement] = rb
-				}
-				newLine := rb.NewLine()
-				for key, value := range point.Tags {
-					newLine.AddTag(key, value)
-				}
-				for key, value := range point.Fields {
-					newLine.AddField(key, value)
-				}
-				recordLines = append(recordLines, newLine.Build(point.Timestamp))
-			}
-			request, err := builder.Authenticate(command.cfg.Username, command.cfg.Password).AddRecord(recordLines...).Build()
-			if err != nil {
-				return err
-			}
-			response, err := command.writeClient.Write(ctx, request)
-			if err != nil {
-				return err
-			}
-			switch response.Code {
-			case 0:
-				return nil
-			case 1:
-				return fmt.Errorf("write failed, code: %d, partial write failure", response.GetCode())
-			case 2:
-				return fmt.Errorf("write failed, code: %d, write failure", response.GetCode())
-			default:
-				return fmt.Errorf("unexpected response code: %d", response.Code)
-			}
+			return command.executeByPointBuffer(ctx)
 		}, nil
 	}
 	return FSMCallEmpty, nil
+}
+
+func (c *ImportCommand) excuteByLPBuffer(ctx context.Context) error {
+	var err error
+	defer func() {
+		c.fsm.batchLPBuffer = c.fsm.batchLPBuffer[:0]
+	}()
+	var lines = strings.Join(c.fsm.batchLPBuffer, "\n")
+	if c.cfg.ColumnWrite {
+		var builderName = c.fsm.database + "." + c.fsm.retentionPolicy
+		builder, ok := builderEntities[builderName]
+		if !ok {
+			builder, err = opengemini.NewWriteRequestBuilder(c.fsm.database, c.fsm.retentionPolicy)
+			if err != nil {
+				return err
+			}
+			builderEntities[builderName] = builder
+		}
+		parser := core.NewLineProtocolParser(lines)
+		points, err := parser.Parse(c.cfg.TimeMultiplier)
+		if err != nil {
+			return err
+		}
+		var recordBuilder = make(map[string]opengemini.RecordBuilder)
+		var recordLines []opengemini.RecordLine
+		for _, point := range points {
+			rb, ok := recordBuilder[point.Measurement]
+			if !ok {
+				rb, err = opengemini.NewRecordBuilder(point.Measurement)
+				if err != nil {
+					return err
+				}
+				recordBuilder[point.Measurement] = rb
+			}
+			newLine := rb.NewLine()
+			for key, value := range point.Tags {
+				newLine.AddTag(key, value)
+			}
+			for key, value := range point.Fields {
+				newLine.AddField(key, value)
+			}
+			recordLines = append(recordLines, newLine.Build(point.Timestamp))
+		}
+		request, err := builder.Authenticate(c.cfg.Username, c.cfg.Password).AddRecord(recordLines...).Build()
+		if err != nil {
+			return err
+		}
+		response, err := c.writeClient.Write(ctx, request)
+		if err != nil {
+			return err
+		}
+		switch response.Code {
+		case 0:
+			return nil
+		case 1:
+			return fmt.Errorf("write failed, code: %d, partial write failure", response.GetCode())
+		case 2:
+			return fmt.Errorf("write failed, code: %d, write failure", response.GetCode())
+		default:
+			return fmt.Errorf("unexpected response code: %d", response.Code)
+		}
+	} else {
+		err = c.httpClient.Write(ctx, c.fsm.database, c.fsm.retentionPolicy, lines, c.cfg.Precision)
+	}
+	return err
+}
+
+func (c *ImportCommand) executeByPointBuffer(ctx context.Context) error {
+	var err error
+	defer func() {
+		c.fsm.batchPointBuffer = c.fsm.batchPointBuffer[:0]
+	}()
+	var builderName = c.fsm.database + "." + c.fsm.retentionPolicy
+	builder, ok := builderEntities[builderName]
+	if !ok {
+		var buildRequestErr error
+		builder, buildRequestErr = opengemini.NewWriteRequestBuilder(c.fsm.database, c.fsm.retentionPolicy)
+		if buildRequestErr != nil {
+			err = errors.Join(err, buildRequestErr)
+			return err
+		}
+		builderEntities[builderName] = builder
+	}
+	var recordBuilder = make(map[string]opengemini.RecordBuilder)
+	var recordLines []opengemini.RecordLine
+	for _, point := range c.fsm.batchPointBuffer {
+		rb, ok := recordBuilder[point.Measurement]
+		if !ok {
+			var recordBuilderErr error
+			rb, recordBuilderErr = opengemini.NewRecordBuilder(point.Measurement)
+			if recordBuilderErr != nil {
+				err = errors.Join(err, recordBuilderErr)
+				return err
+			}
+			recordBuilder[point.Measurement] = rb
+		}
+		newLine := rb.NewLine()
+		for key, value := range point.Tags {
+			newLine.AddTag(key, value)
+		}
+		for key, value := range point.Fields {
+			newLine.AddField(key, value)
+		}
+		recordLines = append(recordLines, newLine.Build(point.Timestamp))
+	}
+	var buildErr error
+	request, buildErr := builder.Authenticate(c.cfg.Username, c.cfg.Password).AddRecord(recordLines...).Build()
+	if buildErr != nil {
+		err = errors.Join(err, buildErr)
+		return err
+	}
+	response, writeErr := c.writeClient.Write(ctx, request)
+	if writeErr != nil {
+		err = errors.Join(err, writeErr)
+		return err
+	}
+	switch response.Code {
+	case 0:
+		return err
+	case 1:
+		return fmt.Errorf("%w\nwrite failed, code: %d, partial write failure", err, response.GetCode())
+	case 2:
+		return fmt.Errorf("%w\nwrite failed, code: %d, write failure", err, response.GetCode())
+	default:
+		return fmt.Errorf("%w\nunexpected response code: %d", err, response.Code)
+	}
 }
 
 func (c *ImportCommand) parseTimestamp2Int64(s string) int64 {
@@ -689,7 +583,7 @@ func (c *ImportCommand) parseTimestamp2Int64(s string) int64 {
 	return tsp * c.cfg.TimeMultiplier
 }
 
-func (icfg *ImportConfig) configTimeMultiplierV1() error {
+func (icfg *ImportConfig) configTimeMultiplier() error {
 	switch icfg.Precision {
 	case "ns":
 		icfg.TimeMultiplier = 1 // 1

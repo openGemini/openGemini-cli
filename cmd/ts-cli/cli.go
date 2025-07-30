@@ -19,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	subcmd "github.com/openGemini/openGemini-cli/cmd/subcmd"
 	"github.com/openGemini/openGemini-cli/common"
 	"github.com/openGemini/openGemini-cli/core"
 )
@@ -77,19 +78,19 @@ func (m *Command) versionCommand() {
 }
 
 func (m *Command) importCommand() {
-	var config = ImportConfig{CommandLineConfig: new(core.CommandLineConfig)}
+	var config = subcmd.ImportConfig{CommandLineConfig: new(core.CommandLineConfig)}
 	cmd := &cobra.Command{
 		Use:     "import",
 		Short:   "import data to openGemini",
 		Long:    "import line protocol text file to openGemini",
-		Example: "ts-cli import --format csv --host localhost --port 8086 --path file.csv --precision=s --database db0 --m m0 -r autogen",
+		Example: "ts-cli import --format csv --host localhost --port 8086 --path file.csv --precision=s --database db0 -m m0 -r autogen",
 		CompletionOptions: cobra.CompletionOptions{
 			DisableNoDescFlag:   true,
 			DisableDescriptions: true,
 			HiddenDefaultCmd:    true,
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			importCmd := new(ImportCommand)
+			importCmd := new(subcmd.ImportCommand)
 			return importCmd.Run(&config)
 		},
 	}
@@ -104,17 +105,17 @@ func (m *Command) importCommand() {
 	cmd.Flags().StringVarP(&config.Cert, "cert", "C", "", "client certificate file when connecting openGemini by https.")
 	cmd.Flags().StringVarP(&config.CertKey, "cert-key", "k", "", "client certificate password.")
 	cmd.Flags().BoolVarP(&config.InsecureHostname, "insecure-hostname", "I", false, "ignore server certificate hostname verification when connecting openGemini by https.")
-	cmd.Flags().BoolVarP(&config.ColumnWrite, "column-write", "w", false, "use high performance column writing protocol, default use line protocol")
-	cmd.Flags().IntVarP(&config.ColumnWritePort, "column-write-port", "W", common.DefaultColumnWritePort, "high performance column writing protocol service port")
-	cmd.Flags().IntVarP(&config.BatchSize, "batch-size", "b", common.DefaultBatchSize, "enable batch submission to improve write performance")
-	cmd.Flags().StringVarP(&config.Path, "path", "T", "", "import file path to store openGemini")
-	cmd.Flags().StringVarP(&config.Format, "format", "f", common.DefaultFormat, "import file format, support 'line_protocol', 'csv'")
-	cmd.Flags().StringSliceVarP(&config.Tags, "tags", "", nil, "measurement tags name")
-	cmd.Flags().StringSliceVarP(&config.Fields, "fields", "", nil, "measurement fields name, if not specified, the remaining columns will act as fields")
-	cmd.Flags().StringVarP(&config.Measurement, "measurement", "m", "", "measurement name")
-	cmd.Flags().StringVarP(&config.Database, "database", "d", "", "database name")
-	cmd.Flags().StringVarP(&config.TimeField, "time", "t", "time", "measurement timestamp name")
-	cmd.Flags().StringVarP(&config.RetentionPolicy, "retention-policy", "r", common.DefaultRetentionPolicy, "measurement retention policy")
+	cmd.Flags().BoolVarP(&config.ColumnWrite, "column-write", "w", false, "use high performance column writing protocol, default use line protocol.")
+	cmd.Flags().IntVarP(&config.ColumnWritePort, "column-write-port", "W", common.DefaultColumnWritePort, "high performance column writing protocol service port.")
+	cmd.Flags().IntVarP(&config.BatchSize, "batch-size", "b", common.DefaultBatchSize, "enable batch submission to improve write performance.")
+	cmd.Flags().StringVarP(&config.Path, "path", "T", "", "import file path to store openGemini.")
+	cmd.Flags().StringVarP(&config.Format, "format", "f", common.DefaultFormat, "import file format, support 'line_protocol', 'csv'.")
+	cmd.Flags().StringSliceVarP(&config.Tags, "tags", "", nil, "measurement tags name.")
+	cmd.Flags().StringSliceVarP(&config.Fields, "fields", "", nil, "measurement fields name, if not specified, the remaining columns will act as fields.")
+	cmd.Flags().StringVarP(&config.Measurement, "measurement", "m", "", "measurement name.")
+	cmd.Flags().StringVarP(&config.Database, "database", "d", "", "database name.")
+	cmd.Flags().StringVarP(&config.TimeField, "time", "t", "time", "measurement timestamp name.")
+	cmd.Flags().StringVarP(&config.RetentionPolicy, "retention-policy", "r", common.DefaultRetentionPolicy, "measurement retention policy.")
 	cmd.Flags().StringVarP(&config.Precision, "precision", "U", "ns", "precision for time unit conversion, support 's', 'ms', 'us', 'ns'.")
 
 	cmd.MarkFlagsRequiredTogether("username", "password")
