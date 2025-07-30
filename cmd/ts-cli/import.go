@@ -29,27 +29,30 @@ import (
 
 	"github.com/openGemini/opengemini-client-go/opengemini"
 	"github.com/openGemini/opengemini-client-go/proto"
+	"github.com/valyala/fastjson/fastfloat"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/openGemini/openGemini-cli/common"
 	"github.com/openGemini/openGemini-cli/core"
 )
 
 const (
-	ImportFormatLineProtocol = "line_protocol"
-	ImportFormatCSV          = "csv"
+	importFormatLineProtocol = "line_protocol"
+	importFormatCSV          = "csv"
+	importFormatTXT          = "txt"
 
-	ImportTokenDDL             = "# DDL"
-	ImportTokenDML             = "# DML"
-	ImportTokenDatabase        = "# CONTEXT-DATABASE:"
-	ImportTokenRetentionPolicy = "# CONTEXT-RETENTION-POLICY:"
-	ImportTokenMeasurement     = "# CONTEXT-MEASUREMENT:"
-	ImportTokenTags            = "# CONTEXT-TAGS:"
-	ImportTokenFields          = "# CONTEXT-FIELDS:"
-	ImportTokenTimeField       = "# CONTEXT-TIME:"
+	importTokenDDL             = "# DDL"
+	importTokenDML             = "# DML"
+	importTokenDatabase        = "# CONTEXT-DATABASE:"
+	importTokenRetentionPolicy = "# CONTEXT-RETENTION-POLICY:"
+	importTokenMeasurement     = "# CONTEXT-MEASUREMENT:"
+	importTokenTags            = "# CONTEXT-TAGS:"
+	importTokenFields          = "# CONTEXT-FIELDS:"
+	importTokenTimeField       = "# CONTEXT-TIME:"
 )
 
 var (
@@ -116,7 +119,7 @@ type ImportCommand struct {
 
 func (c *ImportCommand) Run(config *ImportConfig) error {
 	if config.Format == "" {
-		config.Format = ImportFormatLineProtocol
+		config.Format = importFormatLineProtocol
 	}
 	httpClient, err := core.NewHttpClient(config.CommandLineConfig)
 	if err != nil {
@@ -125,13 +128,19 @@ func (c *ImportCommand) Run(config *ImportConfig) error {
 	}
 	c.httpClient = httpClient
 	if config.ColumnWritePort == 0 {
-		config.ColumnWritePort = 8035
+		config.ColumnWritePort = common.DefaultColumnWritePort
 	}
 	c.writeClient, err = NewColumnWriterClient(config)
 	if err != nil {
 		slog.Error("create column writer client failed", "reason", err)
 		return err
 	}
+
+	if err = config.configTimeMultiplierV1(); err != nil {
+		slog.Error("create column writer client failed", "reason", err)
+		return err
+	}
+
 	c.cfg = config
 	c.fsm = new(ImportFileFSM)
 	return c.process()
@@ -146,12 +155,23 @@ func (c *ImportCommand) process() error {
 	defer file.Close()
 	var ctx = context.Background()
 	switch c.cfg.Format {
-	case ImportFormatLineProtocol:
+	case importFormatLineProtocol:
 		scanner := bufio.NewReader(file)
 		for {
 			line, err := scanner.ReadBytes('\n')
 			if err != nil {
 				if err == io.EOF {
+					if len(line) > 0 {
+						fsmCall, err := c.fsm.processLineProtocol(ctx, string(line))
+						if err != nil {
+							slog.Error("process line protocol failed", "reason", err)
+							break
+						}
+						err = fsmCall(ctx, c)
+						if err != nil {
+							slog.Error("call line protocol fsm function failed", "reason", err)
+						}
+					}
 					break
 				}
 				slog.Error("read line failed", "reason", err)
@@ -173,7 +193,7 @@ func (c *ImportCommand) process() error {
 		}
 		slog.Info("process finished", "path", c.cfg.Path)
 		return nil
-	case ImportFormatCSV:
+	case importFormatCSV:
 		slog.Info("tips: csv file import only support by column write protocol")
 		csvReader := csv.NewReader(file)
 		csvReader.Comment = '#'
@@ -202,6 +222,9 @@ func (c *ImportCommand) process() error {
 		}
 		slog.Info("process finished", "path", c.cfg.Path)
 		return nil
+	// todo
+	case importFormatTXT:
+		return nil
 	default:
 		return fmt.Errorf("unknown --format %s, only support line_protocol,csv", c.cfg.Format)
 	}
@@ -210,8 +233,8 @@ func (c *ImportCommand) process() error {
 type ImportState int
 
 const (
-	ImportStateDDL = iota
-	ImportStateDML
+	importStateDDL = iota
+	importStateDML
 )
 
 type ImportFileFSM struct {
@@ -235,6 +258,7 @@ type FSMCall func(ctx context.Context, command *ImportCommand) error
 
 var FSMCallEmpty = func(ctx context.Context, command *ImportCommand) error { return nil }
 
+// clear the last batch data
 func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 	var err error
 	return func(ctx context.Context, command *ImportCommand) error {
@@ -243,12 +267,65 @@ func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 				command.fsm.batchLPBuffer = command.fsm.batchLPBuffer[:0]
 			}()
 			var lines = strings.Join(command.fsm.batchLPBuffer, "\n")
-			writeErr := command.httpClient.Write(ctx, fsm.database, fsm.retentionPolicy, lines, command.cfg.Precision)
-			if err != nil {
-				err = errors.Join(err, writeErr)
+			if command.cfg.ColumnWrite {
+				var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
+				builder, ok := builderEntities[builderName]
+				if !ok {
+					builder, err = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
+					if err != nil {
+						return err
+					}
+					builderEntities[builderName] = builder
+				}
+				parser := core.NewLineProtocolParser(lines)
+				points, err := parser.Parse(command.cfg.TimeMultiplier)
+				if err != nil {
+					return err
+				}
+				var recordBuilder = make(map[string]opengemini.RecordBuilder)
+				var recordLines []opengemini.RecordLine
+				for _, point := range points {
+					rb, ok := recordBuilder[point.Measurement]
+					if !ok {
+						rb, err = opengemini.NewRecordBuilder(point.Measurement)
+						if err != nil {
+							return err
+						}
+						recordBuilder[point.Measurement] = rb
+					}
+					newLine := rb.NewLine()
+					for key, value := range point.Tags {
+						newLine.AddTag(key, value)
+					}
+					for key, value := range point.Fields {
+						newLine.AddField(key, value)
+					}
+					recordLines = append(recordLines, newLine.Build(point.Timestamp))
+				}
+				request, err := builder.Authenticate(command.cfg.Username, command.cfg.Password).AddRecord(recordLines...).Build()
+				if err != nil {
+					return err
+				}
+				response, err := command.writeClient.Write(ctx, request)
+				if err != nil {
+					return err
+				}
+				switch response.Code {
+				case 0:
+					return nil
+				case 1:
+					return fmt.Errorf("write failed, code: %d, partial write failure", response.GetCode())
+				case 2:
+					return fmt.Errorf("write failed, code: %d, write failure", response.GetCode())
+				default:
+					return fmt.Errorf("unexpected response code: %d", response.Code)
+				}
+			} else {
+				err = command.httpClient.Write(ctx, fsm.database, fsm.retentionPolicy, lines, command.cfg.Precision)
 			}
+			return err
 		}
-		if len(fsm.batchPointBuffer) != 0 {
+		if len(fsm.batchPointBuffer) != 0 { // only support column write
 			defer func() {
 				command.fsm.batchPointBuffer = command.fsm.batchPointBuffer[:0]
 			}()
@@ -257,7 +334,7 @@ func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 			if !ok {
 				var buildRequestErr error
 				builder, buildRequestErr = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
-				if err != nil {
+				if buildRequestErr != nil {
 					err = errors.Join(err, buildRequestErr)
 					return err
 				}
@@ -270,7 +347,7 @@ func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 				if !ok {
 					var recordBuilderErr error
 					rb, recordBuilderErr = opengemini.NewRecordBuilder(point.Measurement)
-					if err != nil {
+					if recordBuilderErr != nil {
 						err = errors.Join(err, recordBuilderErr)
 						return err
 					}
@@ -287,12 +364,12 @@ func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 			}
 			var buildErr error
 			request, buildErr := builder.Authenticate(command.cfg.Username, command.cfg.Password).AddRecord(recordLines...).Build()
-			if err != nil {
+			if buildErr != nil {
 				err = errors.Join(err, buildErr)
 				return err
 			}
 			response, writeErr := command.writeClient.Write(ctx, request)
-			if err != nil {
+			if writeErr != nil {
 				err = errors.Join(err, writeErr)
 				return err
 			}
@@ -312,24 +389,24 @@ func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 }
 
 func (fsm *ImportFileFSM) processLineProtocol(ctx context.Context, data string) (FSMCall, error) {
-	if strings.HasPrefix(data, ImportTokenDDL) {
-		fsm.state = ImportStateDDL
+	if strings.HasPrefix(data, importTokenDDL) {
+		fsm.state = importStateDDL
 		return FSMCallEmpty, nil
 	}
-	if strings.HasPrefix(data, ImportTokenDML) {
-		fsm.state = ImportStateDML
+	if strings.HasPrefix(data, importTokenDML) {
+		fsm.state = importStateDML
 		fsm.retentionPolicy = "autogen"
 		return FSMCallEmpty, nil
 	}
 	switch fsm.state {
-	case ImportStateDDL:
-		if strings.TrimSpace(data) == "" {
+	case importStateDDL:
+		data = strings.TrimSpace(data)
+		if data == "" {
 			return FSMCallEmpty, nil
 		}
-		data = strings.TrimSpace(data)
 		return func(ctx context.Context, command *ImportCommand) error {
 			_, err := command.httpClient.Query(ctx, &opengemini.Query{
-				Command: data,
+				Command: data, // CREATE DATABASE NOAA_water_database
 			})
 			if err != nil {
 				slog.Error("execute ddl failed", "reason", err, "command", data)
@@ -338,16 +415,16 @@ func (fsm *ImportFileFSM) processLineProtocol(ctx context.Context, data string) 
 			slog.Info("execute ddl success", "command", data)
 			return nil
 		}, nil
-	case ImportStateDML:
-		if strings.HasPrefix(data, ImportTokenDatabase) {
+	case importStateDML:
+		if strings.HasPrefix(data, importTokenDatabase) {
 			fsm.database = strings.TrimSpace(strings.Split(data, ":")[1])
 			return FSMCallEmpty, nil
 		}
-		if strings.HasPrefix(data, ImportTokenRetentionPolicy) {
+		if strings.HasPrefix(data, importTokenRetentionPolicy) {
 			fsm.retentionPolicy = strings.TrimSpace(strings.Split(data, ":")[1])
 			return FSMCallEmpty, nil
 		}
-		if strings.HasPrefix(data, "#") {
+		if strings.HasPrefix(data, "#") { // skip line with prefix #
 			return FSMCallEmpty, nil
 		}
 		// skip blank lines
@@ -359,16 +436,18 @@ func (fsm *ImportFileFSM) processLineProtocol(ctx context.Context, data string) 
 			if command.fsm.database == "" {
 				return errors.New("database is required, make sure `# CONTEXT-DATABASE:` token is exist")
 			}
+
+			command.fsm.batchLPBuffer = append(command.fsm.batchLPBuffer, data)
 			if len(command.fsm.batchLPBuffer) < command.cfg.BatchSize {
-				command.fsm.batchLPBuffer = append(command.fsm.batchLPBuffer, data)
 				return nil
 			}
 			defer func() {
 				// clear batch buffer
 				command.fsm.batchLPBuffer = command.fsm.batchLPBuffer[:0]
 			}()
+
 			var err error
-			var lines = strings.Join(command.fsm.batchLPBuffer, "\n")
+			var lines = strings.Join(command.fsm.batchLPBuffer, "\n") // a batch of data is stored in lines
 			if command.cfg.ColumnWrite {
 				var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
 				builder, ok := builderEntities[builderName]
@@ -380,7 +459,7 @@ func (fsm *ImportFileFSM) processLineProtocol(ctx context.Context, data string) 
 					builderEntities[builderName] = builder
 				}
 				parser := core.NewLineProtocolParser(lines)
-				points, err := parser.Parse()
+				points, err := parser.Parse(command.cfg.TimeMultiplier)
 				if err != nil {
 					return err
 				}
@@ -437,21 +516,37 @@ func (fsm *ImportFileFSM) processCSV(ctx context.Context, data []string) (FSMCal
 	}
 
 	switch fsm.state {
-	case ImportStateDDL:
-		fsm.state = ImportStateDML
+	case importStateDDL: // line 1 is the csv header
+		fsm.state = importStateDML
 		return func(ctx context.Context, command *ImportCommand) error {
+			cmdStr := fmt.Sprintf("CREATE DATABASE %s", command.cfg.Database)
+			_, err := command.httpClient.Query(ctx, &opengemini.Query{
+				Command: cmdStr, // CREATE DATABASE NOAA_water_database
+			})
+			if err != nil {
+				slog.Error("execute ddl failed", "reason", err, "command", cmdStr)
+				return err
+			}
+			slog.Info("execute ddl success", "command", cmdStr)
+
+			command.cfg.ColumnWrite = true // only support
 			fsm.database = command.cfg.Database
 			fsm.retentionPolicy = command.cfg.RetentionPolicy
 			fsm.measurement = command.cfg.Measurement
 			fsm.tagMap = make(map[string]FieldPos)
 			fsm.fieldMap = make(map[string]FieldPos)
-			for _, tag := range command.cfg.Tags {
+			for _, tag := range command.cfg.Tags { // tags
 				fsm.tagMap[tag] = FieldPos{}
 			}
-			for _, field := range command.cfg.Fields {
+
+			for _, field := range command.cfg.Fields { // fields
 				fsm.fieldMap[field] = FieldPos{}
 			}
-			for idx, datum := range data {
+			if len(data) > 0 {
+				data[0] = strings.TrimPrefix(data[0], "\ufeff") // jump BOM
+			}
+
+			for idx, datum := range data { // column name
 				_, ok := fsm.tagMap[datum]
 				if ok {
 					fsm.tagMap[datum] = FieldPos{datum, idx}
@@ -466,61 +561,79 @@ func (fsm *ImportFileFSM) processCSV(ctx context.Context, data []string) (FSMCal
 					fsm.timeField = FieldPos{datum, idx}
 					continue
 				}
-				slog.Info("ignore column name", "column", datum)
+
+				if len(command.cfg.Fields) == 0 { // If --field is not specified, the remaining column are fields.
+					fsm.fieldMap[datum] = FieldPos{datum, idx}
+				} else {
+					slog.Info("ignore column name", "column", datum)
+				}
 			}
 			for _, field := range command.cfg.Fields {
 				if fsm.fieldMap[field].Name == "" {
-					return errors.New("field name not in csv header " + field)
+					return fmt.Errorf("field name (%s) not in csv header", field)
+				}
+				if _, exsit := fsm.tagMap[field]; exsit {
+					return errors.New(field + " is in both tags and fields")
 				}
 			}
+
 			for _, tag := range command.cfg.Tags {
 				if fsm.tagMap[tag].Name == "" {
-					return errors.New("tag name not in csv header " + tag)
+					return fmt.Errorf("tag name (%s) not in csv header", tag)
+				}
+				if _, exist := fsm.fieldMap[tag]; exist {
+					return errors.New(tag + " is in both tags and fields")
 				}
 			}
+
 			if fsm.timeField.Name == "" {
-				return errors.New("time field name not in csv header " + command.cfg.TimeField)
+				return errors.New("time name not in csv header " + command.cfg.TimeField)
 			}
 			slog.Info("parse header success")
 			return nil
 		}, nil
-	case ImportStateDML:
+	case importStateDML: // data line
 		return func(ctx context.Context, command *ImportCommand) error {
 			if command.fsm.database == "" {
 				return errors.New("database is required")
 			}
 			if command.fsm.retentionPolicy == "" {
-				command.fsm.retentionPolicy = "autogen"
+				command.fsm.retentionPolicy = common.DefaultRetentionPolicy // "autogen"
 			}
 			if command.cfg.Measurement == "" {
 				return errors.New("measurement is required")
 			}
-			if len(command.cfg.Fields) == 0 || len(fsm.fieldMap) == 0 {
-				return errors.New("--fields is required or field name not in csv header")
+			if len(fsm.fieldMap) == 0 {
+				return errors.New("field is required")
 			}
-			if len(command.fsm.batchLPBuffer) < command.cfg.BatchSize {
-				var point = &opengemini.Point{
-					Measurement: command.cfg.Measurement,
-					Timestamp:   StringToInt64(data[fsm.timeField.Pos]),
-					Tags:        make(map[string]string),
-					Fields:      make(map[string]interface{}),
-				}
-				for _, tag := range fsm.tagMap {
-					point.Tags[tag.Name] = data[tag.Pos]
-				}
-				for _, field := range fsm.fieldMap {
-					point.Fields[field.Name] = data[field.Pos]
-				}
 
-				command.fsm.batchPointBuffer = append(command.fsm.batchPointBuffer, point)
+			var point = &opengemini.Point{
+				Measurement: command.cfg.Measurement,
+				Timestamp:   command.parseTimestamp2Int64(data[fsm.timeField.Pos]),
+				Tags:        make(map[string]string),
+				Fields:      make(map[string]interface{}),
+			}
+			for _, tag := range fsm.tagMap {
+				point.Tags[tag.Name] = data[tag.Pos]
+			}
+			for _, field := range fsm.fieldMap {
+				point.Fields[field.Name] = data[field.Pos]
+			}
+
+			command.fsm.batchPointBuffer = append(command.fsm.batchPointBuffer, point)
+
+			if len(command.fsm.batchPointBuffer) < command.cfg.BatchSize { // continue collect data
 				return nil
 			}
+			// consumption data, if data is full
 			defer func() {
 				command.fsm.batchPointBuffer = command.fsm.batchPointBuffer[:0]
 			}()
-			var err error
+
 			var builderName = command.fsm.database + "." + command.fsm.retentionPolicy
 			builder, ok := builderEntities[builderName]
+
+			var err error
 			if !ok {
 				builder, err = opengemini.NewWriteRequestBuilder(command.fsm.database, command.fsm.retentionPolicy)
 				if err != nil {
@@ -571,7 +684,25 @@ func (fsm *ImportFileFSM) processCSV(ctx context.Context, data []string) (FSMCal
 	return FSMCallEmpty, nil
 }
 
-func StringToInt64(s string) int64 {
-	i, _ := strconv.ParseInt(s, 10, 64)
-	return i
+func (c *ImportCommand) parseTimestamp2Int64(s string) int64 {
+	tsp := int64(fastfloat.ParseBestEffort(s))
+	return tsp * c.cfg.TimeMultiplier
+}
+
+func (icfg *ImportConfig) configTimeMultiplierV1() error {
+	switch icfg.Precision {
+	case "ns":
+		icfg.TimeMultiplier = 1 // 1
+	case "us":
+		icfg.TimeMultiplier = 1e3 // 1e3
+	case "ms":
+		icfg.TimeMultiplier = 1e6 // 1e6
+	case "s":
+		icfg.TimeMultiplier = 1e9 // 1e9
+	case "": // ns
+		icfg.TimeMultiplier = 1 // 1
+	default:
+		return errors.New("incorrect timestamp precision, only support (s, ms, us, ns)")
+	}
+	return nil
 }

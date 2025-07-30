@@ -56,7 +56,7 @@ func TestLineProtocolParser_Parse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewLineProtocolParser(tt.raw)
-			got, err := p.Parse()
+			got, err := p.Parse(1)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -15,8 +15,12 @@
 package common
 
 const (
-	DefaultHost           = "localhost"
-	DefaultHttpPort       = 8086
-	DefaultGrpcPort       = 8305
-	DefaultRequestTimeout = 5000
+	DefaultHost            = "localhost"
+	DefaultRetentionPolicy = "autogen"
+	DefaultFormat          = "line_protocol"
+	DefaultColumnWritePort = 8305
+	DefaultHttpPort        = 8086
+	DefaultGrpcPort        = 8305
+	DefaultRequestTimeout  = 5000
+	DefaultBatchSize       = 100
 )

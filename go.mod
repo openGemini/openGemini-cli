@@ -8,6 +8,7 @@ require (
 	github.com/openGemini/opengemini-client-go v0.9.1-0.20250228002517-f7a891a82c54
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
+	github.com/valyala/fastjson v1.6.4
 	golang.org/x/term v0.32.0
 	google.golang.org/grpc v1.73.0
 )

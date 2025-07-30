@@ -18,11 +18,11 @@ import (
 	"bufio"
 	"errors"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/openGemini/opengemini-client-go/opengemini"
+	"github.com/valyala/fastjson/fastfloat"
 )
 
 // LineProtocolState define line protocol parser fsm state
@@ -50,23 +50,18 @@ type LineProtocolParser struct {
 	bracket      bool
 }
 
-func ConvertLineProtocol(raw string) (*opengemini.Point, error) {
-	p := &LineProtocolParser{}
-	return p.parse(raw)
-}
-
 func NewLineProtocolParser(raw string) *LineProtocolParser {
 	return &LineProtocolParser{raw: strings.NewReader(raw)}
 }
 
-func (p *LineProtocolParser) Parse() ([]*opengemini.Point, error) {
+func (p *LineProtocolParser) Parse(timeMultiplier int64) ([]*opengemini.Point, error) {
 	scanner := bufio.NewScanner(p.raw)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		lp, err := p.parse(line)
+		lp, err := p.parse(line, timeMultiplier)
 		if err != nil {
 			return nil, err
 		}
@@ -78,13 +73,23 @@ func (p *LineProtocolParser) Parse() ([]*opengemini.Point, error) {
 	return p.points, nil
 }
 
-func (p *LineProtocolParser) parse(line string) (*opengemini.Point, error) {
+// parse "average_temperature,location=coyote_creek degrees=74 1567623456"
+func (p *LineProtocolParser) parse(line string, timeMultiplier int64) (*opengemini.Point, error) {
 	// ignore comment
 	if line[0] == '#' {
 		return nil, nil
 	}
 	p.currentState = Measurement
 	p.currentPoint = &opengemini.Point{Tags: make(map[string]string), Fields: make(map[string]interface{})}
+
+	// parse timestamp
+	fds := strings.Split(line, " ")
+	if len(fds) >= 3 {
+		tsp := strings.TrimSpace(fds[len(fds)-1])
+		if checkIsDigit(tsp) {
+			p.currentTime = tsp
+		}
+	}
 
 	for _, token := range line {
 		switch token {
@@ -190,11 +195,7 @@ func (p *LineProtocolParser) parse(line string) (*opengemini.Point, error) {
 	if p.currentTime == "" {
 		p.currentPoint.Timestamp = time.Now().UnixNano()
 	} else {
-		num, err := strconv.Atoi(p.currentTime)
-		if err != nil {
-			return nil, err
-		}
-		p.currentPoint.Timestamp = int64(num)
+		p.currentPoint.Timestamp = int64(fastfloat.ParseBestEffort(p.currentTime)) * timeMultiplier
 	}
 	p.currentTime = ""
 	if len(p.currentPoint.Fields) == 0 {
@@ -229,4 +230,13 @@ func (p *LineProtocolParser) appendTagOrField() {
 	}
 	p.currentKey = ""
 	p.currentValue = ""
+}
+
+func checkIsDigit(s string) bool {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

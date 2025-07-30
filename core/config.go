@@ -31,4 +31,5 @@ type CommandLineConfig struct {
 	CertKey          string
 	InsecureHostname bool
 	Precision        string
+	TimeMultiplier   int64
 }
