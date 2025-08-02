@@ -17,8 +17,9 @@ package subcmd
 import (
 	"testing"
 
-	"github.com/openGemini/openGemini-cli/core"
 	"github.com/stretchr/testify/require"
+
+	"github.com/openGemini/openGemini-cli/core"
 )
 
 func TestParseTimestamp(t *testing.T) {
@@ -42,7 +43,8 @@ func TestParseTimestamp(t *testing.T) {
 			cfg := &ImportConfig{CommandLineConfig: new(core.CommandLineConfig)}
 			cfg.Precision = tcase.precision
 			c.cfg = cfg
-			c.cfg.configTimeMultiplier()
+			err := c.cfg.configTimeMultiplier()
+			require.NoError(t, err)
 			act := c.parseTimestamp2Int64(tcase.timestamp)
 			require.Equal(t, tcase.expect, act)
 		})

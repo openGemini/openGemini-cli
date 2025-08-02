@@ -56,6 +56,7 @@ func (m *Command) rootCommand() {
 	m.cmd.Flags().StringVarP(&m.options.CertKey, "cert-key", "k", "", "client certificate password.")
 	m.cmd.Flags().BoolVarP(&m.options.InsecureHostname, "insecure-hostname", "I", false, "ignore server certificate hostname verification when connecting openGemini by https.")
 	m.cmd.Flags().StringVarP(&m.options.Database, "database", "d", "", "database to connect to openGemini.")
+	m.cmd.Flags().BoolVarP(&m.options.DisplayVertical, "vertical", "V", false, "print query output rows vertically(one line per column value), like key-value style, default horizontal(table style) mode.")
 
 	m.cmd.MarkFlagsRequiredTogether("username", "password")
 	m.cmd.MarkFlagsRequiredTogether("cert", "cert-key")

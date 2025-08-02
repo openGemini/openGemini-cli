@@ -24,3 +24,5 @@ const (
 	DefaultRequestTimeout  = 5000
 	DefaultBatchSize       = 100
 )
+
+const ColumnNameTime = "time"

@@ -25,10 +25,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/olekukonko/tablewriter"
 	"github.com/openGemini/opengemini-client-go/opengemini"
 	"golang.org/x/term"
 
+	"github.com/openGemini/openGemini-cli/common"
 	"github.com/openGemini/openGemini-cli/geminiql"
 	"github.com/openGemini/openGemini-cli/prompt"
 )
@@ -127,7 +129,8 @@ func (cl *CommandLine) executeOnLocal(stmt geminiql.Statement) error {
 		return errors.New("not implemented")
 	case *geminiql.ChunkSizeStatement:
 		return errors.New("not implemented")
-
+	case *geminiql.VerticalStatement:
+		return cl.executeVertical(stmt)
 	default:
 		return fmt.Errorf("unsupport stmt %s", stmt)
 	}
@@ -179,21 +182,25 @@ func (cl *CommandLine) output(result *opengemini.SeriesResult) {
 			_, _ = fmt.Fprintf(os.Stdout, "tags: %s\n", strings.Join(tags, ", "))
 		}
 
-		writer := tablewriter.NewWriter(os.Stdout)
-		cl.prettyTable(series, writer)
-		writer.Render()
+		if cl.DisplayVertical {
+			cl.prettyVertical(series)
+		} else {
+			cl.prettyTable(series)
+		}
+
 		_, _ = fmt.Fprintf(os.Stdout, "%d columns, %d rows in set\n", len(series.Columns), len(series.Values))
 	}
 }
 
-func (cl *CommandLine) prettyTable(series *opengemini.Series, w *tablewriter.Table) {
-	w.SetAutoFormatHeaders(false)
-	w.SetHeader(series.Columns)
+func (cl *CommandLine) prettyTable(series *opengemini.Series) {
+	writer := tablewriter.NewWriter(os.Stdout)
+	writer.SetAutoFormatHeaders(false)
+	writer.SetHeader(series.Columns)
 	for _, value := range series.Values {
 		tuple := make([]string, len(value))
 		for i, val := range value {
 			// control time to int
-			if len(series.Columns) > i && series.Columns[i] == "time" {
+			if len(series.Columns) > 0 && series.Columns[i] == common.ColumnNameTime {
 				iv, ok := val.(int64)
 				if ok {
 					tuple[i] = fmt.Sprintf("%d", iv)
@@ -207,7 +214,35 @@ func (cl *CommandLine) prettyTable(series *opengemini.Series, w *tablewriter.Tab
 			}
 			tuple[i] = fmt.Sprintf("%v", val)
 		}
-		w.Append(tuple)
+		writer.Append(tuple)
+	}
+	writer.Render()
+}
+
+func (cl *CommandLine) prettyVertical(series *opengemini.Series) {
+	maxWidth := maxColumnNameWidth(series.Columns) + 1
+	delimiter := strings.Repeat("*", maxWidth)
+	for rowIdx, rowValues := range series.Values {
+		var rowBuffer strings.Builder
+		rowBuffer.WriteString(fmt.Sprintf("%s %d row %s\n", delimiter, rowIdx+1, delimiter)) // write header
+		for columnIdx, columnValue := range rowValues {
+			if len(series.Columns) > 0 && series.Columns[columnIdx] == common.ColumnNameTime {
+				var timeValue any
+				// avoid using scientific notation
+				switch cv := columnValue.(type) {
+				case int64:
+					timeValue = fmt.Sprintf("%d", cv)
+				case float64:
+					timeValue = fmt.Sprintf("%.0f", cv)
+				case string:
+					timeValue = cv
+				}
+				rowBuffer.WriteString(fmt.Sprintf("%*s : %v\n", maxWidth, series.Columns[columnIdx], timeValue))
+				continue
+			}
+			rowBuffer.WriteString(fmt.Sprintf("%*s : %v\n", maxWidth, series.Columns[columnIdx], columnValue))
+		}
+		fmt.Println(rowBuffer.String())
 	}
 }
 
@@ -255,7 +290,7 @@ func (cl *CommandLine) executePrecision(stmt *geminiql.PrecisionStatement) error
 	case "h", "m", "s", "ms", "u", "ns", "rfc3339":
 		cl.Precision = precision
 	default:
-		return fmt.Errorf("unknown Precision %q. Precision must be rfc3339, h, m, s, ms, u or ns", precision)
+		return fmt.Errorf("unknown precision %q. precision must be rfc3339, h, m, s, ms, u or ns", precision)
 	}
 	return nil
 }
@@ -264,12 +299,13 @@ func (cl *CommandLine) executeHelp(stmt *geminiql.HelpStatement) error {
 	fmt.Println(
 		`Usage:
   exit/quit/\q/ctrl-c/ctrl-d quit the openGemini shell
-  timer                      display execution time
-  debug                      display http request interaction content
-  prompt                     enable command line reminder and suggestion
+  timer                      display execution time, type to turn on or off
+  debug                      display http request interaction content, type to turn on or off
+  prompt                     enable command line reminder and suggestion, type to turn on or off
+  vertical                   print query output rows vertically, type to turn on or off
   auth                       prompt for username and password
   use <db>[.rp]              set current database and optional retention policy
-  Precision <format>         specifies the format of the timestamp: rfc3339, h, m, s, ms, u or ns
+  precision <format>         specifies the format of the timestamp: rfc3339, h, m, s, ms, u or ns
   show cluster               show cluster node status information
   show users                 show all existing users and their permission status
   show databases             show a list of all databases on the cluster
@@ -332,4 +368,25 @@ func (cl *CommandLine) executePrompt(stmt *geminiql.PromptStatement) error {
 
 func (cl *CommandLine) executeInsert(stmt *geminiql.InsertStatement) error {
 	return cl.httpClient.Write(context.Background(), cl.Database, cl.RetentionPolicy, stmt.LineProtocol, cl.Precision)
+}
+
+func (cl *CommandLine) executeVertical(stmt *geminiql.VerticalStatement) error {
+	cl.DisplayVertical = !cl.DisplayVertical
+	displayFlag := "disabled"
+	if cl.DisplayVertical {
+		displayFlag = "enabled"
+	}
+	fmt.Printf("Vertical is %s\n", displayFlag)
+	return nil
+}
+
+func maxColumnNameWidth(names []string) int {
+	var maxWidth int
+	for _, name := range names {
+		width := runewidth.StringWidth(name)
+		if width > maxWidth {
+			maxWidth = width
+		}
+	}
+	return maxWidth
 }
