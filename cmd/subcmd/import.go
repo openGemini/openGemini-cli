@@ -511,7 +511,6 @@ func (c *ImportCommand) excuteByLPBuffer(ctx context.Context) error {
 		}
 	}()
 	var lines = strings.Join(c.fsm.batchLPBuffer[:min(c.cfg.BatchSize, len(c.fsm.batchLPBuffer))], "\n")
-	fmt.Println("---", lines)
 	if c.cfg.ColumnWrite {
 		var builderName = c.fsm.database + "." + c.fsm.retentionPolicy
 		builder, ok := builderEntities[builderName]

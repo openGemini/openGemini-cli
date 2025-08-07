@@ -32,4 +32,5 @@ type CommandLineConfig struct {
 	InsecureHostname bool
 	Precision        string
 	TimeMultiplier   int64
+	DisplayVertical  bool
 }

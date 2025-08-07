@@ -104,3 +104,7 @@ func (s *DebugStatement) stmt() {}
 type PromptStatement struct{}
 
 func (s *PromptStatement) stmt() {}
+
+type VerticalStatement struct{}
+
+func (s *VerticalStatement) stmt() {}

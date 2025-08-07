@@ -71,7 +71,7 @@ func NewPrompt(executor prompt.Executor) *Prompt {
 
 func (p *Prompt) Run() {
 	fmt.Printf("openGemini CLI %s (rev-%s)\n", common.Version, common.GitCommit)
-	fmt.Println("Please use `quit`, `exit` or `Ctrl-D` to exit this program.")
+	fmt.Println("Please use `quit`, `\\q`, `exit`, `Ctrl-C` or `Ctrl-D` to exit this program.")
 	defer p.Destruction(nil)
 	p.instance.Run()
 }
