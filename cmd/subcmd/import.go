@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +44,8 @@ import (
 const (
 	importFormatLineProtocol = "line_protocol"
 	importFormatCSV          = "csv"
-	importFormatJSON         = "json"
+	importFormatJSONInflux   = "jsoni"
+	importFormatJSONProm     = "jsonp"
 
 	importTokenDDL             = "# DDL"
 	importTokenDML             = "# DML"
@@ -121,6 +123,10 @@ func (c *ImportCommand) Run(config *ImportConfig) error {
 	if config.Format == "" {
 		config.Format = importFormatLineProtocol
 	}
+	if config.BatchSize <= 0 {
+		config.BatchSize = common.DefaultBatchSize
+	}
+
 	httpClient, err := core.NewHttpClient(config.CommandLineConfig)
 	if err != nil {
 		slog.Error("create http client failed", "reason", err)
@@ -222,8 +228,47 @@ func (c *ImportCommand) process() error {
 		}
 		slog.Info("process finished", "path", c.cfg.Path)
 		return nil
-	// todo
-	case importFormatJSON:
+	// support jsonProm
+	case importFormatJSONProm:
+		slog.Info("tips: prom json file import only support by row write protocol")
+		dec := json.NewDecoder(file)
+		for dec.More() {
+			fsmCall, err := c.fsm.processJsonP(dec)
+			if err != nil {
+				slog.Error("process prom json line failed", "reason", err)
+				continue
+			}
+			err = fsmCall(ctx, c)
+			if err != nil {
+				slog.Error("call prom json fsm function failed", "reason", err)
+				continue
+			}
+		}
+		if err := c.fsm.clearBuffer()(ctx, c); err != nil {
+			slog.Error("clear buffer failed", "reason", err)
+		}
+		slog.Info("process finished", "path", c.cfg.Path)
+		return nil
+	// support jsonInflux
+	case importFormatJSONInflux:
+		slog.Info("tips: influx json file import only support by row write protocol")
+		dec := json.NewDecoder(file)
+		for dec.More() {
+			fsmCall, err := c.fsm.processJsonI(dec)
+			if err != nil {
+				slog.Error("process influx json line failed", "reason", err)
+				continue
+			}
+			err = fsmCall(ctx, c)
+			if err != nil {
+				slog.Error("call influx json fsm function failed", "reason", err)
+				continue
+			}
+		}
+		if err := c.fsm.clearBuffer()(ctx, c); err != nil {
+			slog.Error("clear buffer failed", "reason", err)
+		}
+		slog.Info("process finished", "path", c.cfg.Path)
 		return nil
 	default:
 		return fmt.Errorf("unknown --format %s, only support line_protocol, csv", c.cfg.Format)
@@ -261,13 +306,17 @@ var FSMCallEmpty = func(ctx context.Context, command *ImportCommand) error { ret
 // clear the last batch data
 func (fsm *ImportFileFSM) clearBuffer() FSMCall {
 	return func(ctx context.Context, command *ImportCommand) error {
-		if len(fsm.batchLPBuffer) != 0 {
-			return command.excuteByLPBuffer(ctx)
+		var errs error
+		for len(fsm.batchLPBuffer) != 0 {
+			err := command.excuteByLPBuffer(ctx)
+			errs = errors.Join(errs, err)
 		}
+
 		if len(fsm.batchPointBuffer) != 0 { // only support column write
-			return command.executeByPointBuffer(ctx)
+			err := command.executeByPointBuffer(ctx)
+			errs = errors.Join(errs, err)
 		}
-		return nil
+		return errs
 	}
 }
 
@@ -455,9 +504,14 @@ func (fsm *ImportFileFSM) processCSV(data []string) (FSMCall, error) {
 func (c *ImportCommand) excuteByLPBuffer(ctx context.Context) error {
 	var err error
 	defer func() {
-		c.fsm.batchLPBuffer = c.fsm.batchLPBuffer[:0]
+		if len(c.fsm.batchLPBuffer) <= c.cfg.BatchSize {
+			c.fsm.batchLPBuffer = c.fsm.batchLPBuffer[:0]
+		} else { // more than one batch
+			c.fsm.batchLPBuffer = c.fsm.batchLPBuffer[c.cfg.BatchSize:]
+		}
 	}()
-	var lines = strings.Join(c.fsm.batchLPBuffer, "\n")
+	var lines = strings.Join(c.fsm.batchLPBuffer[:min(c.cfg.BatchSize, len(c.fsm.batchLPBuffer))], "\n")
+	fmt.Println("---", lines)
 	if c.cfg.ColumnWrite {
 		var builderName = c.fsm.database + "." + c.fsm.retentionPolicy
 		builder, ok := builderEntities[builderName]
