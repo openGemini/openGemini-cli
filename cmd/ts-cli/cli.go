@@ -110,7 +110,7 @@ func (m *Command) importCommand() {
 	cmd.Flags().IntVarP(&config.ColumnWritePort, "column-write-port", "W", common.DefaultColumnWritePort, "high performance column writing protocol service port.")
 	cmd.Flags().IntVarP(&config.BatchSize, "batch-size", "b", common.DefaultBatchSize, "enable batch submission to improve write performance.")
 	cmd.Flags().StringVarP(&config.Path, "path", "T", "", "import file path to store openGemini.")
-	cmd.Flags().StringVarP(&config.Format, "format", "f", common.DefaultFormat, "import file format, support 'line_protocol', 'csv'.")
+	cmd.Flags().StringVarP(&config.Format, "format", "f", common.DefaultFormat, "import file format, support 'line_protocol', 'csv', 'jsoni', 'jsonp'.")
 	cmd.Flags().StringSliceVarP(&config.Tags, "tags", "", nil, "measurement tags name.")
 	cmd.Flags().StringSliceVarP(&config.Fields, "fields", "", nil, "measurement fields name, if not specified, the remaining columns will act as fields.")
 	cmd.Flags().StringVarP(&config.Measurement, "measurement", "m", "", "measurement name.")
