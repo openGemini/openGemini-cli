@@ -1,6 +1,7 @@
 # openGemini-cli
 
 ![License](https://img.shields.io/badge/license-Apache2.0-green)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11008/badge)](https://www.bestpractices.dev/projects/11008)
 ![Language](https://img.shields.io/badge/Language-Go-blue.svg)
 [![version](https://img.shields.io/github/v/tag/opengemini/opengemini-cli?label=release&color=blue)](https://github.com/opengemini/opengemini-client-go/releases)
 [![Go report](https://goreportcard.com/badge/github.com/opengemini/opengemini-cli)](https://goreportcard.com/report/github.com/opengemini/openGemini-cli)
