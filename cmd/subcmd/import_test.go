@@ -60,20 +60,20 @@ func TestParse2String(t *testing.T) {
 	}
 
 	testCases := []testCase{
-		{Type_Field, "", 55, "55"},
-		{Type_Field, "", 66.6, "66.6"},
-		{Type_Field, "", true, "true"},
-		{Type_Field, "", false, "false"},
-		{Type_Field, "", "royal", "\"royal\""},
-		{Type_Field, "", nil, "\"\""},
+		{TypeField, "", 55, "55"},
+		{TypeField, "", 66.6, "66.6"},
+		{TypeField, "", true, "true"},
+		{TypeField, "", false, "false"},
+		{TypeField, "", "royal", "\"royal\""},
+		{TypeField, "", nil, "\"\""},
 
-		{Type_Timestamp, "", 1234567890, "1234567890"},
-		{Type_Timestamp, "", 1234567890.1, "1234567890.1"},
-		{Type_Timestamp, "s", "2010-07-01T18:48:00Z", "1278010080"},
-		{Type_Timestamp, "ns", "2010-07-01T18:48:00Z", "1278010080000000000"},
-		{Type_Timestamp, "ms", "2010-07-01T18:48:00Z", "1278010080000"},
-		{Type_Timestamp, "us", "2010-07-01T18:48:00Z", "1278010080000000"},
-		{Type_Timestamp, "", "2010-07-01T18:48:00ZZZ", ""},
+		{TypeTimestamp, "", 1234567890, "1234567890"},
+		{TypeTimestamp, "", 1234567890.1, "1234567890.1"},
+		{TypeTimestamp, "s", "2010-07-01T18:48:00Z", "1278010080"},
+		{TypeTimestamp, "ns", "2010-07-01T18:48:00Z", "1278010080000000000"},
+		{TypeTimestamp, "ms", "2010-07-01T18:48:00Z", "1278010080000"},
+		{TypeTimestamp, "us", "2010-07-01T18:48:00Z", "1278010080000000"},
+		{TypeTimestamp, "", "2010-07-01T18:48:00ZZZ", ""},
 	}
 
 	for _, tcase := range testCases {

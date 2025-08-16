@@ -23,11 +23,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/openGemini/openGemini-cli/common"
 	"github.com/openGemini/opengemini-client-go/opengemini"
+
+	"github.com/openGemini/openGemini-cli/common"
 )
 
-// prom json format
+// JsonPResult prom json format
 type JsonPResult struct {
 	Metric map[string]string `json:"metric"`
 	Values [][2]any          `json:"values,omitempty"`
@@ -131,7 +132,7 @@ func (fsm *ImportFileFSM) processJsonP(dec *json.Decoder) (FSMCall, error) {
 	return FSMCallEmpty, nil
 }
 
-// influx json format
+// JsonIResult influx json format
 type JsonIResult struct {
 	Measurement string            `json:"name"`
 	Tags        map[string]string `json:"tags,omitempty"`
@@ -219,7 +220,7 @@ func (fsm *ImportFileFSM) processJsonI(dec *json.Decoder) (FSMCall, error) {
 				for _, field := range command.fsm.fieldMap {
 					if field.Pos < len(value) {
 						fk, fv := field.Name, value[field.Pos] // fields value (string, float64, int64, bool)  ->  string
-						fields += fmt.Sprintf("%s=%s,", fk, command.parse2String(fv, Type_Field))
+						fields += fmt.Sprintf("%s=%s,", fk, command.parse2String(fv, TypeField))
 					}
 				}
 				if len(fields) > 0 {
@@ -228,7 +229,7 @@ func (fsm *ImportFileFSM) processJsonI(dec *json.Decoder) (FSMCall, error) {
 
 				if tidx != -1 && tidx < len(value) {
 					tsp := value[tidx] // 1234567890 or "2010-07-01T18:48:00Z" -> "1234567890"
-					timestamp = command.parse2String(tsp, Type_Timestamp)
+					timestamp = command.parse2String(tsp, TypeTimestamp)
 				}
 
 				if tidx == -1 || timestamp == "" {
@@ -257,12 +258,12 @@ func (fsm *ImportFileFSM) clearFieldConfig() {
 }
 
 const (
-	Type_Timestamp = iota
-	Type_Field
+	TypeTimestamp = iota
+	TypeField
 )
 
 func (c *ImportCommand) parse2String(s any, t int) string {
-	if t == Type_Field { // field
+	if t == TypeField { // field
 		switch s := s.(type) { // fields value (string, float64, int64, bool)  ->  string
 		case float64:
 			return strconv.FormatFloat(s, 'f', -1, 64)
@@ -281,7 +282,7 @@ func (c *ImportCommand) parse2String(s any, t int) string {
 			return fmt.Sprintf("\"%s\"", s)
 		}
 		return "\"\""
-	} else if t == Type_Timestamp { // 1234567890 or "2010-07-01T18:48:00Z" -> "1234567890"
+	} else if t == TypeTimestamp { // 1234567890 or "2010-07-01T18:48:00Z" -> "1234567890"
 		switch s := s.(type) {
 		case float64:
 			return strconv.FormatFloat(s, 'f', -1, 64)
