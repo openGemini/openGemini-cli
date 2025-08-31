@@ -8,7 +8,7 @@ require (
 	github.com/openGemini/go-prompt v0.0.0-20250603013942-a2bf30109e15
 	github.com/openGemini/opengemini-client-go v0.9.1
 	github.com/spf13/cobra v1.9.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fastjson v1.6.4
 	golang.org/x/term v0.34.0
 	google.golang.org/grpc v1.74.2

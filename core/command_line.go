@@ -32,7 +32,6 @@ import (
 	"github.com/openGemini/opengemini-client-go/opengemini"
 	"golang.org/x/term"
 
-	"github.com/openGemini/openGemini-cli/common"
 	"github.com/openGemini/openGemini-cli/geminiql"
 	"github.com/openGemini/openGemini-cli/prompt"
 )
@@ -204,20 +203,18 @@ func (cl *CommandLine) prettyTable(series *opengemini.Series) {
 	for _, value := range series.Values {
 		tuple := make([]string, len(value))
 		for i, val := range value {
-			// control time to int
-			if len(series.Columns) > 0 && series.Columns[i] == common.ColumnNameTime {
-				iv, ok := val.(int64)
-				if ok {
-					tuple[i] = fmt.Sprintf("%d", iv)
-					continue
-				}
-				fv, ok := val.(float64)
-				if ok {
-					tuple[i] = fmt.Sprintf("%.0f", fv)
-					continue
-				}
+			switch cv := val.(type) {
+			case int64:
+				tuple[i] = fmt.Sprintf("%d", cv)
+			case float32, float64:
+				tuple[i] = fmt.Sprintf("%.0f", cv)
+			case string:
+				tuple[i] = cv
+			case bool:
+				tuple[i] = fmt.Sprintf("%t", cv)
+			default:
+				tuple[i] = fmt.Sprintf("%v", cv)
 			}
-			tuple[i] = fmt.Sprintf("%v", val)
 		}
 		_ = table.Append(tuple)
 	}
@@ -231,21 +228,20 @@ func (cl *CommandLine) prettyVertical(series *opengemini.Series) {
 		var rowBuffer strings.Builder
 		rowBuffer.WriteString(fmt.Sprintf("%s %d row %s\n", delimiter, rowIdx+1, delimiter)) // write header
 		for columnIdx, columnValue := range rowValues {
-			if len(series.Columns) > 0 && series.Columns[columnIdx] == common.ColumnNameTime {
-				var timeValue any
-				// avoid using scientific notation
-				switch cv := columnValue.(type) {
-				case int64:
-					timeValue = fmt.Sprintf("%d", cv)
-				case float64:
-					timeValue = fmt.Sprintf("%.0f", cv)
-				case string:
-					timeValue = cv
-				}
-				rowBuffer.WriteString(fmt.Sprintf("%*s : %v\n", maxWidth, series.Columns[columnIdx], timeValue))
-				continue
+			var vs string
+			switch cv := columnValue.(type) {
+			case int64:
+				vs = fmt.Sprintf("%d", cv)
+			case float32, float64:
+				vs = fmt.Sprintf("%.0f", cv)
+			case string:
+				vs = cv
+			case bool:
+				vs = fmt.Sprintf("%t", cv)
+			default:
+				vs = fmt.Sprintf("%v", cv)
 			}
-			rowBuffer.WriteString(fmt.Sprintf("%*s : %v\n", maxWidth, series.Columns[columnIdx], columnValue))
+			rowBuffer.WriteString(fmt.Sprintf("%*s : %v\n", maxWidth, series.Columns[columnIdx], vs))
 		}
 		fmt.Println(rowBuffer.String())
 	}
