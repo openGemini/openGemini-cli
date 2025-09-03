@@ -124,10 +124,55 @@ func (m *Command) importCommand() {
 	m.cmd.AddCommand(cmd)
 }
 
+func (m *Command) exportCommand() {
+	var config = subcmd.ExportConfig{CommandLineConfig: new(core.CommandLineConfig)}
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "(EXPERIMENTAL) Export data from openGemini",
+		Long:  `(EXPERIMENTAL) Export data from openGemini to file or remote`,
+		Example: `
+	$ ts-cli export --format txt --out /tmp/openGemini/export/export.txt --data /tmp/openGemini/data --wal /tmp/openGemini/data
+	--dbfilter NOAA_water_database
+
+	$ ts-cli export --format csv --out /tmp/openGemini/export/export.csv --data /tmp/openGemini/data --wal /tmp/openGemini/data
+	--dbfilter NOAA_water_database --mstfilter h2o_pH --timefilter "2019-08-25T09:18:00Z~2019-08-26T07:48:00Z"
+
+	$ ts-cli export --format remote --remote ${host}:8086 --data /tmp/openGemini/data --wal /tmp/openGemini/data
+	--dbfilter NOAA_water_database --mstfilter h2o_feet`,
+		CompletionOptions: cobra.CompletionOptions{
+			DisableDefaultCmd:   true,
+			DisableDescriptions: true,
+			DisableNoDescFlag:   true,
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			exportCmd := new(subcmd.ExportCommand)
+			return exportCmd.Run(&config)
+		},
+	}
+
+	cmd.Flags().StringVar(&config.Format, "format", "txt", "Export data format, support csv, txt, remote.")
+	cmd.Flags().StringVar(&config.Out, "out", "", "Destination file to export to.")
+	cmd.Flags().StringVar(&config.DataDir, "data", "", "Data storage path to export.")
+	cmd.Flags().StringVar(&config.WalDir, "wal", "", "WAL storage path to export.")
+	cmd.Flags().StringVar(&config.Remote, "remote", "", "Remote address to export data.")
+	cmd.Flags().StringVar(&config.DBFilter, "dbfilter", "", "Database to export")
+	cmd.Flags().StringVar(&config.RetentionFilter, "retentionfilter", "", "Optional. Retention policy to export.")
+	cmd.Flags().StringVar(&config.MeasurementFilter, "mstfilter", "", "Optional.Measurement to export.")
+	cmd.Flags().StringVar(&config.TimeFilter, "timefilter", "", "Optional.Export time range, support 'start~end'")
+	cmd.Flags().BoolVar(&config.Compress, "compress", false, "Optional. Compress the export output.")
+	cmd.Flags().StringVarP(&config.RemoteUsername, "remoteusername", "u", "", "Remote export Optional.Username to connect to remote openGemini.")
+	cmd.Flags().StringVarP(&config.RemotePassword, "remotepassword", "p", "", "Remote export Optional.Password to connect to remote openGemini.")
+	cmd.Flags().BoolVar(&config.RemoteSsl, "remotessl", false, "Remote export Optional.Use https for connecting to remote openGemini.")
+	cmd.Flags().BoolVar(&config.Resume, "resume", false, "Resume the export progress from the last point.")
+
+	m.cmd.AddCommand(cmd)
+}
+
 func (m *Command) load() {
 	m.rootCommand()
 	m.versionCommand()
 	m.importCommand()
+	m.exportCommand()
 }
 
 func (m *Command) Execute() error {
