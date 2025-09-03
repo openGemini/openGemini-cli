@@ -34,8 +34,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: skip generated files
-        run: rm -rf geminiql/parser.go
+      - name: skip generated and lib files
+        run: rm -rf geminiql/parser.go lib
       - name: licenselint
         uses: hezhangjian/licenselint@main
         with:
