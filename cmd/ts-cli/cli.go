@@ -150,6 +150,20 @@ func (m *Command) exportCommand() {
 		},
 	}
 
+	// Connection flags for online mode
+	cmd.Flags().StringVarP(&config.Host, "host", "H", common.DefaultHost, "ts-sql host to connect to.")
+	cmd.Flags().IntVarP(&config.Port, "port", "p", common.DefaultHttpPort, "ts-sql tcp port to connect to.")
+	cmd.Flags().IntVarP(&config.Timeout, "timeout", "", common.DefaultRequestTimeout, "request-timeout in mill-seconds.")
+	cmd.Flags().StringVarP(&config.Username, "username", "u", "", "username to connect to openGemini.")
+	cmd.Flags().StringVarP(&config.Password, "password", "P", "", "password to connect to openGemini.")
+	cmd.Flags().BoolVarP(&config.EnableTls, "ssl", "s", false, "use https for connecting to openGemini.")
+	cmd.Flags().BoolVarP(&config.InsecureTls, "insecure-tls", "i", false, "ignore ssl verification when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.CACert, "cacert", "c", "", "CA certificate to verify peer against when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.Cert, "cert", "C", "", "client certificate file when connecting openGemini by https.")
+	cmd.Flags().StringVarP(&config.CertKey, "cert-key", "k", "", "client certificate password.")
+	cmd.Flags().BoolVarP(&config.InsecureHostname, "insecure-hostname", "I", false, "ignore server certificate hostname verification when connecting openGemini by https.")
+
+	// Export-specific flags
 	cmd.Flags().StringVar(&config.Format, "format", "txt", "Export data format, support csv, txt, remote.")
 	cmd.Flags().StringVar(&config.Out, "out", "", "Destination file to export to.")
 	cmd.Flags().StringVar(&config.DataDir, "data", "", "Data storage path to export.")
@@ -160,11 +174,13 @@ func (m *Command) exportCommand() {
 	cmd.Flags().StringVar(&config.MeasurementFilter, "mstfilter", "", "Optional.Measurement to export.")
 	cmd.Flags().StringVar(&config.TimeFilter, "timefilter", "", "Optional.Export time range, support 'start~end'")
 	cmd.Flags().BoolVar(&config.Compress, "compress", false, "Optional. Compress the export output.")
-	cmd.Flags().StringVarP(&config.RemoteUsername, "remoteusername", "u", "", "Remote export Optional.Username to connect to remote openGemini.")
-	cmd.Flags().StringVarP(&config.RemotePassword, "remotepassword", "p", "", "Remote export Optional.Password to connect to remote openGemini.")
+	cmd.Flags().StringVar(&config.RemoteUsername, "remoteusername", "", "Remote export Optional.Username to connect to remote openGemini.")
+	cmd.Flags().StringVar(&config.RemotePassword, "remotepassword", "", "Remote export Optional.Password to connect to remote openGemini.")
 	cmd.Flags().BoolVar(&config.RemoteSsl, "remotessl", false, "Remote export Optional.Use https for connecting to remote openGemini.")
 	cmd.Flags().BoolVar(&config.Resume, "resume", false, "Resume the export progress from the last point.")
 
+	cmd.MarkFlagsRequiredTogether("username", "password")
+	cmd.MarkFlagsRequiredTogether("cert", "cert-key")
 	m.cmd.AddCommand(cmd)
 }
 
