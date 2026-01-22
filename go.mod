@@ -9,7 +9,7 @@ require (
 	github.com/olekukonko/tablewriter v1.0.9
 	github.com/openGemini/go-prompt v0.0.0-20250603013942-a2bf30109e15
 	github.com/openGemini/openGemini v1.4.3
-	github.com/openGemini/opengemini-client-go v0.9.1
+	github.com/openGemini/opengemini-client-go v0.9.2
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fastjson v1.6.4
@@ -136,9 +136,9 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.etcd.io/etcd/raft/v3 v3.5.10 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
-	go.opentelemetry.io/otel v1.36.0 // indirect
-	go.opentelemetry.io/otel/metric v1.36.0 // indirect
-	go.opentelemetry.io/otel/trace v1.36.0 // indirect
+	go.opentelemetry.io/otel v1.38.0 // indirect
+	go.opentelemetry.io/otel/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
