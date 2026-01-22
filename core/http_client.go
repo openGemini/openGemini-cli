@@ -158,7 +158,9 @@ func (h *HttpClientCreator) Query(ctx context.Context, query *opengemini.Query) 
 	queryValues.Add("db", query.Database)
 	queryValues.Add("rp", query.RetentionPolicy)
 	queryValues.Add("q", query.Command)
-	queryValues.Add("epoch", query.Precision.Epoch())
+	if query.Precision != opengemini.PrecisionNone {
+		queryValues.Add("epoch", query.Precision.Epoch())
+	}
 
 	response, err := h.innerRequest(ctx, http.MethodPost, urlPath, strings.NewReader(queryValues.Encode()))
 	if err != nil {
